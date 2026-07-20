@@ -1,0 +1,9 @@
+node_modules/
+.next/
+.history/
+.vercel/
+.env
+.env.local
+.env*.local
+*.log
+*.tsbuildinfo
