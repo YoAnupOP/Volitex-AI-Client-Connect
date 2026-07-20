@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 declare global {
-  interface Window { FB?: { init: (config: Record<string, unknown>) => void; login: (callback: (response: { authResponse?: { code?: string } }) => void, options: Record<string, unknown>) => void }; }
+  interface Window {
+    FB?: { init: (config: Record<string, unknown>) => void; login: (callback: (response: { authResponse?: { code?: string; userID?: string } }) => void, options: Record<string, unknown>) => void };
+    fbAsyncInit?: () => void;
+  }
 }
 
 type Provider = "whatsapp" | "instagram";
@@ -12,15 +15,23 @@ type CardProps = { provider: Provider; connected: boolean; title: string; detail
 function loadFacebookSdk(appId: string, version: string) {
   return new Promise<void>((resolve, reject) => {
     if (window.FB) return resolve();
+    let initialized = false;
+    const initialize = () => {
+      if (initialized || !window.FB) return;
+      initialized = true;
+      window.FB.init({ appId, cookie: true, xfbml: false, version });
+      resolve();
+    };
+    window.fbAsyncInit = initialize;
     const script = document.createElement("script"); script.async = true; script.defer = true; script.crossOrigin = "anonymous"; script.src = "https://connect.facebook.net/en_US/sdk.js";
-    script.onload = () => { window.FB?.init({ appId, cookie: true, xfbml: false, version }); resolve(); };
+    script.onload = initialize;
     script.onerror = () => reject(new Error("Unable to load Meta")); document.head.appendChild(script);
   });
 }
 
 export function ConnectionCard({ provider, connected, title, details = [] }: CardProps) {
   const [working, setWorking] = useState(false); const [error, setError] = useState<string | null>(null);
-  const code = useRef<string | undefined>(undefined); const asset = useRef<{ wabaId?: string; phoneNumberId?: string }>({}); const state = useRef<string | undefined>(undefined); const submitted = useRef(false);
+  const code = useRef<string | undefined>(undefined); const asset = useRef<{ wabaId?: string; phoneNumberId?: string; facebookUserId?: string }>({}); const state = useRef<string | undefined>(undefined); const submitted = useRef(false);
 
   const finish = useCallback(async () => {
     if (submitted.current || !code.current || !state.current || !asset.current.wabaId || !asset.current.phoneNumberId) return;
@@ -33,7 +44,7 @@ export function ConnectionCard({ provider, connected, title, details = [] }: Car
   useEffect(() => {
     if (provider !== "whatsapp") return;
     const listener = (event: MessageEvent) => {
-      if (event.origin !== "https://www.facebook.com" && event.origin !== "https://web.facebook.com") return;
+      if (event.origin !== "https://www.facebook.com") return;
       let payload: { type?: string; event?: string; data?: { waba_id?: string; phone_number_id?: string } };
       try { payload = typeof event.data === "string" ? JSON.parse(event.data) : event.data; } catch { return; }
       if (payload.type !== "WA_EMBEDDED_SIGNUP") return;
@@ -48,13 +59,19 @@ export function ConnectionCard({ provider, connected, title, details = [] }: Car
     try {
       const start = await fetch("/api/connect/whatsapp/start", { method: "POST" });
       if (!start.ok) throw new Error("Please sign in again");
-      const config = await start.json() as { appId: string; configurationId: string; graphVersion: string };
+      const config = await start.json() as { configurationId: string; graphVersion: string };
       state.current = start.headers.get("X-Volitex-OAuth-State") ?? undefined;
       if (!state.current) throw new Error("Unable to secure WhatsApp authorization");
-      await loadFacebookSdk(config.appId, config.graphVersion);
-      window.FB?.login((response) => { code.current = response.authResponse?.code; if (!code.current) { setWorking(false); setError("WhatsApp signup was cancelled."); return; } finish(); }, {
-        config_id: config.configurationId, response_type: "code", override_default_response_type: true, state: state.current,
-        extras: { setup: {} },
+      const facebookAppId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID;
+      if (!facebookAppId) throw new Error("WhatsApp connection is not configured");
+      await loadFacebookSdk(facebookAppId, config.graphVersion);
+      if (!window.FB) throw new Error("Unable to initialize the Facebook SDK");
+      window.FB.login((response) => { code.current = response.authResponse?.code; asset.current.facebookUserId = response.authResponse?.userID; if (!code.current) { setWorking(false); setError("WhatsApp signup was cancelled or could not be authorized."); return; } finish(); }, {
+        config_id: config.configurationId,
+        response_type: "code",
+        override_default_response_type: true,
+        state: state.current,
+        extras: { version: "v4" },
       });
     } catch (cause) { setWorking(false); setError(cause instanceof Error ? cause.message : "Unable to start WhatsApp signup"); }
   }

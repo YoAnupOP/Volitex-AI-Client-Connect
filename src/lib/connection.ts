@@ -2,7 +2,10 @@ import { database } from "@/lib/supabase";
 import { encrypt } from "@/lib/crypto";
 
 export type ConnectionMetadata = {
-  whatsapp?: { businessName: string; businessId: string | null; connectedAt: string };
+  whatsapp?: {
+    businessName?: string; businessId?: string | null; connectedAt?: string;
+    facebookUserId?: string; status?: "disconnected"; disconnectedAt?: string;
+  };
   instagram?: {
     username?: string; grantedPermissions?: string[]; connectedAt?: string;
     status?: "disconnected" | "deleted"; disconnectedAt?: string; deletedAt?: string;
@@ -23,11 +26,11 @@ export async function getTenant(tenantId: string): Promise<Tenant> {
   return data as Tenant;
 }
 
-export async function saveWhatsappConnection(input: { tenantId: string; token: string; wabaId: string; phoneNumberId: string; businessName: string; businessId: string | null }) {
+export async function saveWhatsappConnection(input: { tenantId: string; token: string; wabaId: string; phoneNumberId: string; businessName: string; businessId: string | null; facebookUserId?: string }) {
   const tenant = await getTenant(input.tenantId);
   const metadata: ConnectionMetadata = {
     ...(tenant.meta_connection_metadata ?? {}),
-    whatsapp: { businessName: input.businessName, businessId: input.businessId, connectedAt: new Date().toISOString() },
+    whatsapp: { businessName: input.businessName, businessId: input.businessId, connectedAt: new Date().toISOString(), facebookUserId: input.facebookUserId },
   };
   const { error } = await database().from("tenants").update({
     waba_id: input.wabaId, phone_number_id: input.phoneNumberId, meta_access_token: encrypt(input.token), meta_connection_metadata: metadata,
@@ -77,4 +80,30 @@ export async function removeInstagramConnectionByAccountId(accountId: string, mo
     if (error) throw new Error("Unable to remove Instagram connection");
   }
   return (tenants ?? []).map((tenant) => tenant.id as string);
+}
+
+export async function removeWhatsappConnectionByMetaUserId(userId: string, mode: "deauthorized" | "deleted") {
+  const { data: tenants, error: lookupError } = await database().from("tenants")
+    .select("id, waba_id, phone_number_id, meta_connection_metadata");
+  if (lookupError) throw new Error("Unable to find WhatsApp connection");
+
+  const matches = (tenants ?? []).filter((tenant) => {
+    const metadata = tenant.meta_connection_metadata as ConnectionMetadata | null;
+    return tenant.waba_id === userId || tenant.phone_number_id === userId || metadata?.whatsapp?.facebookUserId === userId;
+  });
+  const now = new Date().toISOString();
+  for (const tenant of matches) {
+    const metadata: ConnectionMetadata = { ...((tenant.meta_connection_metadata as ConnectionMetadata | null) ?? {}) };
+    if (mode === "deauthorized") metadata.whatsapp = { status: "disconnected", disconnectedAt: now };
+    else delete metadata.whatsapp;
+    const { error } = await database().from("tenants").update({
+      meta_access_token: null,
+      waba_id: null,
+      phone_number_id: null,
+      meta_connection_metadata: metadata,
+      status: "disconnected",
+    }).eq("id", tenant.id);
+    if (error) throw new Error("Unable to remove WhatsApp connection");
+  }
+  return matches.map((tenant) => tenant.id as string);
 }
