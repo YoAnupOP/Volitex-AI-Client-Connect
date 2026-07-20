@@ -3,7 +3,10 @@ import { encrypt } from "@/lib/crypto";
 
 export type ConnectionMetadata = {
   whatsapp?: { businessName: string; businessId: string | null; connectedAt: string };
-  instagram?: { username: string; grantedPermissions: string[]; connectedAt: string };
+  instagram?: {
+    username?: string; grantedPermissions?: string[]; connectedAt?: string;
+    status?: "disconnected" | "deleted"; disconnectedAt?: string; deletedAt?: string;
+  };
 };
 
 export type Tenant = {
@@ -53,4 +56,25 @@ export async function disconnect(tenantId: string, provider: "whatsapp" | "insta
     : { instagram_business_account_id: null, instagram_page_id: null, instagram_access_token: null, meta_connection_metadata: metadata };
   const { error } = await database().from("tenants").update(update).eq("id", tenantId);
   if (error) throw new Error(`Unable to disconnect ${provider}`);
+}
+
+export async function removeInstagramConnectionByAccountId(accountId: string, mode: "deauthorized" | "deleted") {
+  const { data: tenants, error: lookupError } = await database().from("tenants")
+    .select("id, meta_connection_metadata").eq("instagram_business_account_id", accountId);
+  if (lookupError) throw new Error("Unable to find Instagram connection");
+
+  const now = new Date().toISOString();
+  for (const tenant of tenants ?? []) {
+    const metadata: ConnectionMetadata = { ...(tenant.meta_connection_metadata as ConnectionMetadata ?? {}) };
+    // Preserve only non-profile lifecycle information; usernames, permissions, IDs, and tokens are removed.
+    metadata.instagram = mode === "deleted" ? { status: "deleted", deletedAt: now } : { status: "disconnected", disconnectedAt: now };
+    const { error } = await database().from("tenants").update({
+      instagram_access_token: null,
+      instagram_business_account_id: null,
+      instagram_page_id: null,
+      meta_connection_metadata: metadata,
+    }).eq("id", tenant.id);
+    if (error) throw new Error("Unable to remove Instagram connection");
+  }
+  return (tenants ?? []).map((tenant) => tenant.id as string);
 }
