@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   try {
     const exchange = await fetch("https://api.instagram.com/oauth/access_token", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ client_id: env.metaAppId, client_secret: env.metaAppSecret, grant_type: "authorization_code", redirect_uri: `${env.appUrl}/api/connect/instagram/callback`, code }),
+      body: new URLSearchParams({ client_id: env.instagramAppId, client_secret: env.metaAppSecret, grant_type: "authorization_code", redirect_uri: env.instagramRedirectUri, code }),
       cache: "no-store",
     });
     if (!exchange.ok) throw new Error("Instagram code exchange failed");
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     if (!profileResponse.ok) throw new Error("Unable to retrieve Instagram profile");
     const profile = await profileResponse.json() as { id?: string; username?: string };
     if (!profile.id || !profile.username) throw new Error("Instagram account must be a professional account");
-    await saveInstagramConnection({ tenantId: session.tenantId, token: token.access_token, accountId: profile.id, username: profile.username, permissions: token.permissions ?? ["instagram_business_basic", "instagram_business_manage_messages"] });
+    await saveInstagramConnection({ tenantId: session.tenantId, token: token.access_token, accountId: profile.id, username: profile.username, permissions: token.permissions ?? ["instagram_business_basic", "instagram_business_manage_messages", "instagram_business_manage_comments"] });
     const response = NextResponse.redirect(new URL("/dashboard?connected=instagram", env.appUrl));
     consumeOAuthState(response, "instagram");
     return response;
