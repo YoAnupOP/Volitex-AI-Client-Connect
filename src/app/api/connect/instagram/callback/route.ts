@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   try {
     const exchange = await fetch("https://api.instagram.com/oauth/access_token", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ client_id: env.instagramAppId, client_secret: env.metaAppSecret, grant_type: "authorization_code", redirect_uri: env.instagramRedirectUri, code }),
+      body: new URLSearchParams({ client_id: env.instagramAppId, client_secret: env.instagramAppSecret, grant_type: "authorization_code", redirect_uri: env.instagramRedirectUri, code }),
       cache: "no-store",
     });
     if (!exchange.ok) throw new Error("Instagram code exchange failed");

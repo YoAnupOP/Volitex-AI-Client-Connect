@@ -13,6 +13,7 @@ export const env = {
   get metaAppId() { return required("META_APP_ID"); },
   get metaAppSecret() { return required("META_APP_SECRET"); },
   get instagramAppId() { return required("INSTAGRAM_APP_ID"); },
+  get instagramAppSecret() { return required("INSTAGRAM_APP_SECRET"); },
   get instagramRedirectUri() { return required("INSTAGRAM_REDIRECT_URI"); },
   // Intentionally configured rather than pinned: Meta retires Graph versions on its own schedule.
   get metaGraphVersion() { return required("META_GRAPH_API_VERSION"); },
