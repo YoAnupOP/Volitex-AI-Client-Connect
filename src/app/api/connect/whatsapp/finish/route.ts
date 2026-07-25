@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "WhatsApp authorization could not be verified" }, { status: 400 });
   }
   try {
-    const exchange = await fetch(`https://graph.facebook.com/${env.metaGraphVersion}/oauth/access_token`, {
+    const exchange = await fetch("https://graph.facebook.com/v25.0/oauth/access_token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ client_id: env.metaAppId, client_secret: env.metaAppSecret, code: body.code }),
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     if (!exchange.ok) throw new Error("Code exchange failed");
     const token = await exchange.json() as { access_token?: string };
     if (!token.access_token) throw new Error("No access token returned");
-    const graphBase = `https://graph.facebook.com/${env.metaGraphVersion}`;
+    const graphBase = "https://graph.facebook.com/v25.0";
     const [phoneResult, wabaResult, appUserResult] = await Promise.all([
       fetch(`${graphBase}/${encodeURIComponent(body.phoneNumberId)}?${new URLSearchParams({ fields: "display_phone_number,verified_name", access_token: token.access_token })}`, { cache: "no-store" }),
       fetch(`${graphBase}/${encodeURIComponent(body.wabaId)}?${new URLSearchParams({ fields: "name,owner_business{id}", access_token: token.access_token })}`, { cache: "no-store" }),

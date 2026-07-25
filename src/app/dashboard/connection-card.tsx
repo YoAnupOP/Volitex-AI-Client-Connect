@@ -19,7 +19,7 @@ function loadFacebookSdk(appId: string, version: string) {
     const initialize = () => {
       if (initialized || !window.FB) return;
       initialized = true;
-      window.FB.init({ appId, cookie: true, xfbml: false, version });
+      window.FB.init({ appId, autoLogAppEvents: true, xfbml: true, version });
       resolve();
     };
     window.fbAsyncInit = initialize;
@@ -48,7 +48,11 @@ export function ConnectionCard({ provider, connected, title, details = [] }: Car
       let payload: { type?: string; event?: string; data?: { waba_id?: string; phone_number_id?: string } };
       try { payload = typeof event.data === "string" ? JSON.parse(event.data) : event.data; } catch { return; }
       if (payload.type !== "WA_EMBEDDED_SIGNUP") return;
-      if (payload.event === "FINISH") { asset.current = { wabaId: payload.data?.waba_id, phoneNumberId: payload.data?.phone_number_id }; finish(); }
+      if (payload.event === "FINISH") {
+        console.info("WA_EMBEDDED_SIGNUP FINISH event received");
+        asset.current = { wabaId: payload.data?.waba_id, phoneNumberId: payload.data?.phone_number_id };
+        finish();
+      }
       if (payload.event === "ERROR" || payload.event === "CANCEL") { setWorking(false); setError("WhatsApp signup was not completed."); }
     };
     window.addEventListener("message", listener); return () => window.removeEventListener("message", listener);
@@ -70,7 +74,6 @@ export function ConnectionCard({ provider, connected, title, details = [] }: Car
         config_id: config.configurationId,
         response_type: "code",
         override_default_response_type: true,
-        state: state.current,
         extras: { version: "v4" },
       });
     } catch (cause) { setWorking(false); setError(cause instanceof Error ? cause.message : "Unable to start WhatsApp signup"); }
