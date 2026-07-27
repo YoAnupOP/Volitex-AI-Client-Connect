@@ -8,6 +8,21 @@ function dashboardError(message: string) { return NextResponse.redirect(new URL(
 
 type TokenResponse = { access_token?: unknown; user_id?: unknown; permissions?: unknown };
 
+function redactMetaResponse(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactMetaResponse);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+    key,
+    key === "access_token" || key === "client_secret" ? "[REDACTED]" : redactMetaResponse(item),
+  ]));
+}
+
+async function metaJson(response: Response, stage: string): Promise<unknown> {
+  const body: unknown = await response.json().catch(() => null);
+  console.info(`Instagram ${stage} response`, { status: response.status, body: redactMetaResponse(body) });
+  return body;
+}
+
 function tokenPayload(value: unknown): TokenResponse | null {
   if (!value || typeof value !== "object") return null;
   const response = value as TokenResponse & { data?: unknown };
@@ -38,15 +53,18 @@ export async function GET(request: NextRequest) {
       body: new URLSearchParams({ client_id: env.instagramAppId, client_secret: env.instagramAppSecret, grant_type: "authorization_code", redirect_uri: env.instagramRedirectUri, code }),
       cache: "no-store",
     });
-    if (!exchange.ok) throw new Error("Instagram code exchange failed");
-    const token = tokenPayload(await exchange.json());
-    if (!token || typeof token.access_token !== "string" || typeof token.user_id !== "string") throw new Error("Instagram did not return a usable account");
+    const tokenResponse = await metaJson(exchange, "code exchange");
+    if (!exchange.ok) throw new Error(`Instagram code exchange failed with status ${exchange.status}`);
+    const token = tokenPayload(tokenResponse);
+    // The profile lookup below is the authoritative source of the Instagram account ID.
+    // Some valid responses omit user_id, so only the access token is required here.
+    if (!token || typeof token.access_token !== "string") throw new Error("Instagram did not return an access token");
     let accessToken = token.access_token;
     let expiresIn = 60 * 60;
     try {
       const longLivedResponse = await fetch(`https://graph.instagram.com/access_token?${new URLSearchParams({ grant_type: "ig_exchange_token", client_secret: env.instagramAppSecret, access_token: token.access_token })}`, { cache: "no-store" });
+      const longLivedToken = await metaJson(longLivedResponse, "long-lived token exchange") as { access_token?: unknown; expires_in?: unknown };
       if (!longLivedResponse.ok) throw new Error(`Instagram long-lived token exchange failed with status ${longLivedResponse.status}`);
-      const longLivedToken = await longLivedResponse.json() as { access_token?: unknown; expires_in?: unknown };
       if (typeof longLivedToken.access_token !== "string" || typeof longLivedToken.expires_in !== "number") throw new Error("Instagram long-lived token exchange returned an invalid response");
       accessToken = longLivedToken.access_token;
       expiresIn = longLivedToken.expires_in;
@@ -55,9 +73,9 @@ export async function GET(request: NextRequest) {
     }
     const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
     const profileResponse = await fetch(`https://graph.instagram.com/me?${new URLSearchParams({ fields: "id,username", access_token: accessToken })}`, { cache: "no-store" });
-    if (!profileResponse.ok) throw new Error("Unable to retrieve Instagram profile");
-    const profile = await profileResponse.json() as { id?: string; username?: string };
-    if (!profile.id || !profile.username) throw new Error("Instagram account must be a professional account");
+    const profile = await metaJson(profileResponse, "Instagram account lookup") as { id?: unknown; username?: unknown };
+    if (!profileResponse.ok) throw new Error(`Unable to retrieve Instagram profile with status ${profileResponse.status}`);
+    if (typeof profile.id !== "string" || typeof profile.username !== "string") throw new Error("Instagram account lookup did not return an id and username; confirm this is a professional account");
     await saveInstagramConnection({ tenantId: session.tenantId, token: accessToken, accountId: profile.id, username: profile.username, permissions: normalizePermissions(token.permissions), expiresAt });
     const response = NextResponse.redirect(new URL("/dashboard?connected=instagram", env.appUrl));
     consumeOAuthState(response, "instagram");
