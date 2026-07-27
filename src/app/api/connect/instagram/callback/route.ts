@@ -28,7 +28,10 @@ export async function GET(request: NextRequest) {
   const session = await getSession();
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
-  if (!session || !code || !state || !(await verifyOAuthState("instagram", state, session))) return dashboardError("Instagram authorization could not be verified. Please try again.");
+  if (!session) { console.error("Instagram callback: no session"); return dashboardError("Instagram authorization could not be verified. Please try again."); }
+  if (!code) { console.error("Instagram callback: no code param"); return dashboardError("Instagram authorization could not be verified. Please try again."); }
+  if (!state) { console.error("Instagram callback: no state param"); return dashboardError("Instagram authorization could not be verified. Please try again."); }
+  if (!(await verifyOAuthState("instagram", state, session))) { console.error("Instagram callback: state verification failed"); return dashboardError("Instagram authorization could not be verified. Please try again."); }
   try {
     const exchange = await fetch("https://api.instagram.com/oauth/access_token", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -59,7 +62,8 @@ export async function GET(request: NextRequest) {
     const response = NextResponse.redirect(new URL("/dashboard?connected=instagram", env.appUrl));
     consumeOAuthState(response, "instagram");
     return response;
-  } catch {
+  } catch (error) {
+    console.error("Instagram connection failed:", error);
     const response = dashboardError("Instagram could not be connected. Confirm it is a professional account and try again.");
     consumeOAuthState(response, "instagram");
     return response;
