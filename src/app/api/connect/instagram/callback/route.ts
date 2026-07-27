@@ -7,6 +7,7 @@ import { saveInstagramConnection } from "@/lib/connection";
 function dashboardError(message: string) { return NextResponse.redirect(new URL(`/dashboard?error=${encodeURIComponent(message)}`, env.appUrl)); }
 
 type TokenResponse = { access_token?: unknown; user_id?: unknown; permissions?: unknown };
+type InstagramBusinessAccount = { id: string; username?: string };
 
 function redactMetaResponse(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactMetaResponse);
@@ -37,6 +38,20 @@ function normalizePermissions(permissions: unknown): string[] {
   if (Array.isArray(permissions)) return permissions.filter((permission): permission is string => typeof permission === "string");
   if (typeof permissions === "string") return permissions.split(",").map((permission) => permission.trim()).filter(Boolean);
   return ["instagram_business_basic", "instagram_business_manage_messages", "instagram_business_manage_comments"];
+}
+
+function connectedInstagramAccounts(value: unknown): InstagramBusinessAccount[] {
+  if (!value || typeof value !== "object") return [];
+  const data = (value as { data?: unknown }).data;
+  if (!Array.isArray(data)) return [];
+  return data.flatMap((page) => {
+    if (!page || typeof page !== "object") return [];
+    const account = (page as { instagram_business_account?: unknown }).instagram_business_account;
+    if (!account || typeof account !== "object") return [];
+    const id = (account as { id?: unknown }).id;
+    const username = (account as { username?: unknown }).username;
+    return typeof id === "string" ? [{ id, username: typeof username === "string" ? username : undefined }] : [];
+  });
 }
 
 export async function GET(request: NextRequest) {
@@ -76,9 +91,23 @@ export async function GET(request: NextRequest) {
     const profile = await metaJson(profileResponse, "Instagram account lookup") as { id?: unknown; username?: unknown };
     if (!profileResponse.ok) throw new Error(`Unable to retrieve Instagram profile with status ${profileResponse.status}`);
     if (typeof profile.id !== "string" || typeof profile.username !== "string") throw new Error("Instagram account lookup did not return an id and username; confirm this is a professional account");
-    // Meta sends this Instagram-scoped professional-account ID as entry.id in webhook events.
-    // Do not use /me.id when it differs: that value can be app-scoped and cannot route webhooks.
-    const webhookAccountId = typeof token.user_id === "string" ? token.user_id : profile.id;
+    const accountsResponse = await fetch(`https://graph.facebook.com/${env.metaGraphVersion}/me/accounts?${new URLSearchParams({ fields: "instagram_business_account{id,username}", access_token: accessToken })}`, { cache: "no-store" });
+    const accountsPayload = await metaJson(accountsResponse, "Facebook Pages account lookup");
+    if (!accountsResponse.ok) {
+      throw new Error(`Unable to retrieve Facebook Pages with status ${accountsResponse.status}. This requires a Facebook user token with Page permissions.`);
+    }
+    const accounts = connectedInstagramAccounts(accountsPayload);
+    const usernameMatches = accounts.filter((account) => account.username === profile.username);
+    const matchedAccount = usernameMatches.length === 1
+      ? usernameMatches[0]
+      : accounts.length === 1
+        ? accounts[0]
+        : null;
+    if (!matchedAccount) {
+      throw new Error(`No unambiguous Instagram Business Account was found in the connected Facebook Pages (found ${accounts.length}).`);
+    }
+    // This is the Instagram Professional Account ID Meta sends as entry.id in webhooks.
+    const webhookAccountId = matchedAccount.id;
     console.info("Instagram account ID mapping", {
       tokenUserId: typeof token.user_id === "string" ? token.user_id : null,
       profileId: profile.id,
