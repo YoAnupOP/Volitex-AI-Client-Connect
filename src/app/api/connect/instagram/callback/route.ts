@@ -6,6 +6,24 @@ import { saveInstagramConnection } from "@/lib/connection";
 
 function dashboardError(message: string) { return NextResponse.redirect(new URL(`/dashboard?error=${encodeURIComponent(message)}`, env.appUrl)); }
 
+type TokenResponse = { access_token?: unknown; user_id?: unknown; permissions?: unknown };
+
+function tokenPayload(value: unknown): TokenResponse | null {
+  if (!value || typeof value !== "object") return null;
+  const response = value as TokenResponse & { data?: unknown };
+  if (Array.isArray(response.data)) {
+    const first = response.data[0];
+    return first && typeof first === "object" ? first as TokenResponse : null;
+  }
+  return response;
+}
+
+function normalizePermissions(permissions: unknown): string[] {
+  if (Array.isArray(permissions)) return permissions.filter((permission): permission is string => typeof permission === "string");
+  if (typeof permissions === "string") return permissions.split(",").map((permission) => permission.trim()).filter(Boolean);
+  return ["instagram_business_basic", "instagram_business_manage_messages", "instagram_business_manage_comments"];
+}
+
 export async function GET(request: NextRequest) {
   const session = await getSession();
   const code = request.nextUrl.searchParams.get("code");
@@ -18,13 +36,26 @@ export async function GET(request: NextRequest) {
       cache: "no-store",
     });
     if (!exchange.ok) throw new Error("Instagram code exchange failed");
-    const token = await exchange.json() as { access_token?: string; user_id?: string; permissions?: string[] };
-    if (!token.access_token || !token.user_id) throw new Error("Instagram did not return a usable account");
-    const profileResponse = await fetch(`https://graph.instagram.com/me?${new URLSearchParams({ fields: "id,username", access_token: token.access_token })}`, { cache: "no-store" });
+    const token = tokenPayload(await exchange.json());
+    if (!token || typeof token.access_token !== "string" || typeof token.user_id !== "string") throw new Error("Instagram did not return a usable account");
+    let accessToken = token.access_token;
+    let expiresIn = 60 * 60;
+    try {
+      const longLivedResponse = await fetch(`https://graph.instagram.com/access_token?${new URLSearchParams({ grant_type: "ig_exchange_token", client_secret: env.instagramAppSecret, access_token: token.access_token })}`, { cache: "no-store" });
+      if (!longLivedResponse.ok) throw new Error(`Instagram long-lived token exchange failed with status ${longLivedResponse.status}`);
+      const longLivedToken = await longLivedResponse.json() as { access_token?: unknown; expires_in?: unknown };
+      if (typeof longLivedToken.access_token !== "string" || typeof longLivedToken.expires_in !== "number") throw new Error("Instagram long-lived token exchange returned an invalid response");
+      accessToken = longLivedToken.access_token;
+      expiresIn = longLivedToken.expires_in;
+    } catch (error) {
+      console.warn("Unable to exchange Instagram short-lived token; saving short-lived token instead", error);
+    }
+    const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+    const profileResponse = await fetch(`https://graph.instagram.com/me?${new URLSearchParams({ fields: "id,username", access_token: accessToken })}`, { cache: "no-store" });
     if (!profileResponse.ok) throw new Error("Unable to retrieve Instagram profile");
     const profile = await profileResponse.json() as { id?: string; username?: string };
     if (!profile.id || !profile.username) throw new Error("Instagram account must be a professional account");
-    await saveInstagramConnection({ tenantId: session.tenantId, token: token.access_token, accountId: profile.id, username: profile.username, permissions: token.permissions ?? ["instagram_business_basic", "instagram_business_manage_messages", "instagram_business_manage_comments"] });
+    await saveInstagramConnection({ tenantId: session.tenantId, token: accessToken, accountId: profile.id, username: profile.username, permissions: normalizePermissions(token.permissions), expiresAt });
     const response = NextResponse.redirect(new URL("/dashboard?connected=instagram", env.appUrl));
     consumeOAuthState(response, "instagram");
     return response;

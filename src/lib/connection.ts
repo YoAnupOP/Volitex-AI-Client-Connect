@@ -15,12 +15,13 @@ export type ConnectionMetadata = {
 export type Tenant = {
   id: string; client_name: string; phone_number_id: string | null; waba_id: string | null;
   instagram_business_account_id: string | null; instagram_page_id: string | null;
+  instagram_access_token: string | null; instagram_token_expires_at: string | null;
   meta_connection_metadata: ConnectionMetadata | null;
 };
 
 export async function getTenant(tenantId: string): Promise<Tenant> {
   const { data, error } = await database().from("tenants")
-    .select("id, client_name, phone_number_id, waba_id, instagram_business_account_id, instagram_page_id, meta_connection_metadata")
+    .select("id, client_name, phone_number_id, waba_id, instagram_business_account_id, instagram_page_id, instagram_access_token, instagram_token_expires_at, meta_connection_metadata")
     .eq("id", tenantId).single();
   if (error || !data) throw new Error("Unable to load tenant connection status");
   return data as Tenant;
@@ -38,16 +39,37 @@ export async function saveWhatsappConnection(input: { tenantId: string; token: s
   if (error) throw new Error("Unable to save WhatsApp connection");
 }
 
-export async function saveInstagramConnection(input: { tenantId: string; token: string; accountId: string; username: string; permissions: string[] }) {
+export async function saveInstagramConnection(input: { tenantId: string; token: string; accountId: string; username: string; permissions: string[]; expiresAt: string }) {
   const tenant = await getTenant(input.tenantId);
   const metadata: ConnectionMetadata = {
     ...(tenant.meta_connection_metadata ?? {}),
     instagram: { username: input.username, grantedPermissions: input.permissions, connectedAt: new Date().toISOString() },
   };
   const { error } = await database().from("tenants").update({
-    instagram_business_account_id: input.accountId, instagram_access_token: encrypt(input.token), meta_connection_metadata: metadata,
+    instagram_business_account_id: input.accountId, instagram_access_token: encrypt(input.token), instagram_token_expires_at: input.expiresAt, meta_connection_metadata: metadata,
   }).eq("id", input.tenantId);
   if (error) throw new Error("Unable to save Instagram connection");
+}
+
+export async function getTenantsWithExpiringInstagramTokens(withinDays: number): Promise<Tenant[]> {
+  const now = new Date();
+  const expiresBy = new Date(now.getTime() + withinDays * 24 * 60 * 60 * 1000);
+  const { data, error } = await database().from("tenants")
+    .select("id, client_name, phone_number_id, waba_id, instagram_business_account_id, instagram_page_id, instagram_access_token, instagram_token_expires_at, meta_connection_metadata")
+    .not("instagram_access_token", "is", null)
+    .not("instagram_token_expires_at", "is", null)
+    .gt("instagram_token_expires_at", now.toISOString())
+    .lte("instagram_token_expires_at", expiresBy.toISOString());
+  if (error) throw new Error("Unable to load expiring Instagram tokens");
+  return (data ?? []) as Tenant[];
+}
+
+export async function updateInstagramToken(tenantId: string, encryptedToken: string, expiresAt: string) {
+  const { error } = await database().from("tenants").update({
+    instagram_access_token: encryptedToken,
+    instagram_token_expires_at: expiresAt,
+  }).eq("id", tenantId);
+  if (error) throw new Error("Unable to update Instagram token");
 }
 
 export async function disconnect(tenantId: string, provider: "whatsapp" | "instagram") {
@@ -56,7 +78,7 @@ export async function disconnect(tenantId: string, provider: "whatsapp" | "insta
   delete metadata[provider];
   const update = provider === "whatsapp"
     ? { waba_id: null, phone_number_id: null, meta_access_token: null, meta_connection_metadata: metadata }
-    : { instagram_business_account_id: null, instagram_page_id: null, instagram_access_token: null, meta_connection_metadata: metadata };
+    : { instagram_business_account_id: null, instagram_page_id: null, instagram_access_token: null, instagram_token_expires_at: null, meta_connection_metadata: metadata };
   const { error } = await database().from("tenants").update(update).eq("id", tenantId);
   if (error) throw new Error(`Unable to disconnect ${provider}`);
 }
@@ -73,6 +95,7 @@ export async function removeInstagramConnectionByAccountId(accountId: string, mo
     metadata.instagram = mode === "deleted" ? { status: "deleted", deletedAt: now } : { status: "disconnected", disconnectedAt: now };
     const { error } = await database().from("tenants").update({
       instagram_access_token: null,
+      instagram_token_expires_at: null,
       instagram_business_account_id: null,
       instagram_page_id: null,
       meta_connection_metadata: metadata,
