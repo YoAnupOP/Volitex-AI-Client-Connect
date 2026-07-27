@@ -76,7 +76,15 @@ export async function GET(request: NextRequest) {
     const profile = await metaJson(profileResponse, "Instagram account lookup") as { id?: unknown; username?: unknown };
     if (!profileResponse.ok) throw new Error(`Unable to retrieve Instagram profile with status ${profileResponse.status}`);
     if (typeof profile.id !== "string" || typeof profile.username !== "string") throw new Error("Instagram account lookup did not return an id and username; confirm this is a professional account");
-    await saveInstagramConnection({ tenantId: session.tenantId, token: accessToken, accountId: profile.id, username: profile.username, permissions: normalizePermissions(token.permissions), expiresAt });
+    // Meta sends this Instagram-scoped professional-account ID as entry.id in webhook events.
+    // Do not use /me.id when it differs: that value can be app-scoped and cannot route webhooks.
+    const webhookAccountId = typeof token.user_id === "string" ? token.user_id : profile.id;
+    console.info("Instagram account ID mapping", {
+      tokenUserId: typeof token.user_id === "string" ? token.user_id : null,
+      profileId: profile.id,
+      webhookAccountId,
+    });
+    await saveInstagramConnection({ tenantId: session.tenantId, token: accessToken, accountId: webhookAccountId, username: profile.username, permissions: normalizePermissions(token.permissions), expiresAt });
     const response = NextResponse.redirect(new URL("/dashboard?connected=instagram", env.appUrl));
     consumeOAuthState(response, "instagram");
     return response;
