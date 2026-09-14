@@ -19,6 +19,7 @@ export const env = {
   // Intentionally configured rather than pinned: Meta retires Graph versions on its own schedule.
   get metaGraphVersion() { return required("META_GRAPH_API_VERSION"); },
   get metaWhatsappConfigId() { return required("META_WHATSAPP_CONFIG_ID"); },
+  get metaWhatsappRegistrationPin() { return required("META_WHATSAPP_REGISTRATION_PIN"); },
   get resendApiKey() { return process.env.RESEND_API_KEY; },
   get emailFrom() { return process.env.EMAIL_FROM; },
 };

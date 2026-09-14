@@ -11,6 +11,8 @@ declare global {
 
 type Provider = "whatsapp" | "instagram";
 type CardProps = { provider: Provider; connected: boolean; title: string; details?: string[] };
+type SignupEvent = "FINISH" | "FINISH_ONLY_WABA" | "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING";
+type SignupAsset = { wabaId?: string; phoneNumberId?: string; businessId?: string; facebookUserId?: string; event?: SignupEvent };
 
 function loadFacebookSdk(appId: string, version: string) {
   return new Promise<void>((resolve, reject) => {
@@ -31,29 +33,55 @@ function loadFacebookSdk(appId: string, version: string) {
 
 export function ConnectionCard({ provider, connected, title, details = [] }: CardProps) {
   const [working, setWorking] = useState(false); const [error, setError] = useState<string | null>(null);
-  const code = useRef<string | undefined>(undefined); const asset = useRef<{ wabaId?: string; phoneNumberId?: string; facebookUserId?: string }>({}); const state = useRef<string | undefined>(undefined); const submitted = useRef(false);
+  const code = useRef<string | undefined>(undefined); const asset = useRef<SignupAsset>({}); const state = useRef<string | undefined>(undefined); const submitted = useRef(false);
 
   const finish = useCallback(async () => {
-    if (submitted.current || !code.current || !state.current || !asset.current.wabaId || !asset.current.phoneNumberId) return;
+    if (submitted.current || !code.current || !state.current || !asset.current.wabaId || !asset.current.event ||
+      (asset.current.event === "FINISH" && !asset.current.phoneNumberId)) return;
     submitted.current = true;
     const response = await fetch("/api/connect/whatsapp/finish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: code.current, state: state.current, ...asset.current }) });
     if (!response.ok) { submitted.current = false; setWorking(false); setError((await response.json()).error ?? "Unable to connect WhatsApp"); return; }
-    window.location.assign("/dashboard?connected=whatsapp");
+    const result = await response.json() as { pendingPhoneNumber?: boolean };
+    window.location.assign(result.pendingPhoneNumber ? "/dashboard?connected=whatsapp&pendingPhone=1" : "/dashboard?connected=whatsapp");
   }, []);
 
   useEffect(() => {
     if (provider !== "whatsapp") return;
     const listener = (event: MessageEvent) => {
-      if (event.origin !== "https://www.facebook.com") return;
-      let payload: { type?: string; event?: string; data?: { waba_id?: string; phone_number_id?: string } };
+      let hostname: string;
+      try { hostname = new URL(event.origin).hostname; } catch { return; }
+      if (!(hostname === "facebook.com" || hostname.endsWith(".facebook.com"))) return;
+      let payload: {
+        type?: string; event?: SignupEvent | "CANCEL" | "ERROR";
+        data?: { waba_id?: string; phone_number_id?: string; business_id?: string; current_step?: string; error_message?: string; error_code?: string | number; session_id?: string };
+      };
       try { payload = typeof event.data === "string" ? JSON.parse(event.data) : event.data; } catch { return; }
       if (payload.type !== "WA_EMBEDDED_SIGNUP") return;
-      if (payload.event === "FINISH") {
-        console.info("WA_EMBEDDED_SIGNUP FINISH event received");
-        asset.current = { wabaId: payload.data?.waba_id, phoneNumberId: payload.data?.phone_number_id };
-        finish();
+      const report = () => {
+        if (!state.current || !payload.event) return;
+        void fetch("/api/connect/whatsapp/event", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+            state: state.current, event: payload.event, currentStep: payload.data?.current_step,
+            errorCode: payload.data?.error_code, errorMessage: payload.data?.error_message, sessionId: payload.data?.session_id,
+          }),
+        });
+      };
+      if (payload.event === "FINISH" || payload.event === "FINISH_ONLY_WABA" || payload.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING") {
+        report();
+        asset.current = {
+          ...asset.current,
+          wabaId: payload.data?.waba_id, phoneNumberId: payload.data?.phone_number_id,
+          businessId: payload.data?.business_id, event: payload.event,
+        };
+        finish(); // Exchanges the short-lived code as soon as both browser callbacks arrive.
+        return;
       }
-      if (payload.event === "ERROR" || payload.event === "CANCEL") { setWorking(false); setError("WhatsApp signup was not completed."); }
+      if (payload.event === "CANCEL" || payload.event === "ERROR") {
+        report();
+        setWorking(false);
+        const detail = payload.data?.error_message ? " Meta reported an error; please try again or contact support." : "";
+        setError(`WhatsApp signup was not completed.${detail}`);
+      }
     };
     window.addEventListener("message", listener); return () => window.removeEventListener("message", listener);
   }, [provider, finish]);
@@ -63,18 +91,18 @@ export function ConnectionCard({ provider, connected, title, details = [] }: Car
     try {
       const start = await fetch("/api/connect/whatsapp/start", { method: "POST" });
       if (!start.ok) throw new Error("Please sign in again");
-      const config = await start.json() as { configurationId: string; graphVersion: string };
+      const config = await start.json() as { configurationId: string; graphVersion: string; appId: string };
       state.current = start.headers.get("X-Volitex-OAuth-State") ?? undefined;
       if (!state.current) throw new Error("Unable to secure WhatsApp authorization");
-      const facebookAppId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID;
-      if (!facebookAppId) throw new Error("WhatsApp connection is not configured");
-      await loadFacebookSdk(facebookAppId, config.graphVersion);
+      if (!config.appId) throw new Error("WhatsApp connection is not configured");
+      await loadFacebookSdk(config.appId, config.graphVersion);
       if (!window.FB) throw new Error("Unable to initialize the Facebook SDK");
       window.FB.login((response) => { code.current = response.authResponse?.code; asset.current.facebookUserId = response.authResponse?.userID; if (!code.current) { setWorking(false); setError("WhatsApp signup was cancelled or could not be authorized."); return; } finish(); }, {
         config_id: config.configurationId,
         response_type: "code",
         override_default_response_type: true,
-        extras: { version: "v4" },
+        // Meta's v4 Coexistence launch contract. Standard FINISH events are still handled above.
+        extras: { setup: {}, featureType: "whatsapp_business_app_onboarding", sessionInfoVersion: "3" },
       });
     } catch (cause) { setWorking(false); setError(cause instanceof Error ? cause.message : "Unable to start WhatsApp signup"); }
   }

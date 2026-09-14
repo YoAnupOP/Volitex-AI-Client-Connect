@@ -4,7 +4,9 @@ import { encrypt } from "@/lib/crypto";
 export type ConnectionMetadata = {
   whatsapp?: {
     businessName?: string; businessId?: string | null; connectedAt?: string;
-    facebookUserId?: string; status?: "disconnected"; disconnectedAt?: string;
+    facebookUserId?: string; onboardingType?: "cloud_api" | "coexistence";
+    status?: "disconnected" | "pending_phone" | "syncing" | "reonboarding";
+    disconnectedAt?: string;
   };
   instagram?: {
     username?: string; grantedPermissions?: string[]; connectedAt?: string;
@@ -14,6 +16,12 @@ export type ConnectionMetadata = {
 
 export type Tenant = {
   id: string; client_name: string; phone_number_id: string | null; waba_id: string | null;
+  whatsapp_business_id: string | null; whatsapp_onboarding_type: "cloud_api" | "coexistence" | null;
+  whatsapp_onboarded_at: string | null; whatsapp_sync_deadline_at: string | null;
+  whatsapp_contacts_sync_state: "not_started" | "initiating" | "requested" | "failed_unknown";
+  whatsapp_contacts_sync_request_id: string | null; whatsapp_contacts_sync_started_at: string | null;
+  whatsapp_history_sync_state: "not_started" | "initiating" | "requested" | "failed_unknown";
+  whatsapp_history_sync_request_id: string | null; whatsapp_history_sync_started_at: string | null;
   instagram_business_account_id: string | null; instagram_page_id: string | null;
   instagram_access_token: string | null; instagram_token_expires_at: string | null;
   meta_connection_metadata: ConnectionMetadata | null;
@@ -21,22 +29,84 @@ export type Tenant = {
 
 export async function getTenant(tenantId: string): Promise<Tenant> {
   const { data, error } = await database().from("tenants")
-    .select("id, client_name, phone_number_id, waba_id, instagram_business_account_id, instagram_page_id, instagram_access_token, instagram_token_expires_at, meta_connection_metadata")
+    .select("id, client_name, phone_number_id, waba_id, whatsapp_business_id, whatsapp_onboarding_type, whatsapp_onboarded_at, whatsapp_sync_deadline_at, whatsapp_contacts_sync_state, whatsapp_contacts_sync_request_id, whatsapp_contacts_sync_started_at, whatsapp_history_sync_state, whatsapp_history_sync_request_id, whatsapp_history_sync_started_at, instagram_business_account_id, instagram_page_id, instagram_access_token, instagram_token_expires_at, meta_connection_metadata")
     .eq("id", tenantId).single();
   if (error || !data) throw new Error("Unable to load tenant connection status");
   return data as Tenant;
 }
 
-export async function saveWhatsappConnection(input: { tenantId: string; token: string; wabaId: string; phoneNumberId: string; businessName: string; businessId: string | null; facebookUserId?: string }) {
+export async function saveWhatsappConnection(input: {
+  tenantId: string; token: string; wabaId: string; phoneNumberId: string | null;
+  businessName: string; businessId: string | null; facebookUserId?: string;
+  onboardingType: "cloud_api" | "coexistence"; syncDeadlineAt?: string | null;
+}) {
   const tenant = await getTenant(input.tenantId);
+  const now = new Date().toISOString();
   const metadata: ConnectionMetadata = {
     ...(tenant.meta_connection_metadata ?? {}),
-    whatsapp: { businessName: input.businessName, businessId: input.businessId, connectedAt: new Date().toISOString(), facebookUserId: input.facebookUserId },
+    whatsapp: {
+      businessName: input.businessName, businessId: input.businessId, connectedAt: now,
+      facebookUserId: input.facebookUserId, onboardingType: input.onboardingType,
+      status: input.phoneNumberId ? undefined : input.onboardingType === "coexistence" ? "syncing" : "pending_phone",
+    },
   };
   const { error } = await database().from("tenants").update({
-    waba_id: input.wabaId, phone_number_id: input.phoneNumberId, meta_access_token: encrypt(input.token), meta_connection_metadata: metadata,
+    waba_id: input.wabaId,
+    phone_number_id: input.phoneNumberId,
+    meta_access_token: encrypt(input.token),
+    whatsapp_business_id: input.businessId,
+    whatsapp_onboarding_type: input.onboardingType,
+    whatsapp_onboarded_at: now,
+    whatsapp_sync_deadline_at: input.syncDeadlineAt ?? null,
+    whatsapp_contacts_sync_state: "not_started",
+    whatsapp_contacts_sync_request_id: null,
+    whatsapp_contacts_sync_started_at: null,
+    whatsapp_history_sync_state: "not_started",
+    whatsapp_history_sync_request_id: null,
+    whatsapp_history_sync_started_at: null,
+    meta_connection_metadata: metadata,
   }).eq("id", input.tenantId);
   if (error) throw new Error("Unable to save WhatsApp connection");
+}
+
+type SyncKind = "contacts" | "history";
+
+/** Claims a one-time SMB sync before calling Meta, preventing duplicate API calls on retry. */
+export async function claimWhatsappSync(tenantId: string, kind: SyncKind): Promise<boolean> {
+  const stateColumn = kind === "contacts" ? "whatsapp_contacts_sync_state" : "whatsapp_history_sync_state";
+  const startedColumn = kind === "contacts" ? "whatsapp_contacts_sync_started_at" : "whatsapp_history_sync_started_at";
+  const { data, error } = await database().from("tenants")
+    .update({ [stateColumn]: "initiating", [startedColumn]: new Date().toISOString() })
+    .eq("id", tenantId)
+    .eq(stateColumn, "not_started")
+    .select("id");
+  if (error) throw new Error(`Unable to claim ${kind} synchronization`);
+  return Boolean(data?.length);
+}
+
+export async function completeWhatsappSync(tenantId: string, kind: SyncKind, requestId: string) {
+  const stateColumn = kind === "contacts" ? "whatsapp_contacts_sync_state" : "whatsapp_history_sync_state";
+  const requestIdColumn = kind === "contacts" ? "whatsapp_contacts_sync_request_id" : "whatsapp_history_sync_request_id";
+  const { error } = await database().from("tenants")
+    .update({ [stateColumn]: "requested", [requestIdColumn]: requestId })
+    .eq("id", tenantId);
+  if (error) throw new Error(`Unable to record ${kind} synchronization`);
+}
+
+/** A network timeout is intentionally terminal: retrying Meta's one-time sync may corrupt onboarding. */
+export async function markWhatsappSyncUncertain(tenantId: string, kind: SyncKind) {
+  const stateColumn = kind === "contacts" ? "whatsapp_contacts_sync_state" : "whatsapp_history_sync_state";
+  await database().from("tenants").update({ [stateColumn]: "failed_unknown" }).eq("id", tenantId);
+}
+
+export async function confirmCoexistencePhoneNumber(tenantId: string, phoneNumberId: string) {
+  const tenant = await getTenant(tenantId);
+  const metadata: ConnectionMetadata = { ...(tenant.meta_connection_metadata ?? {}) };
+  if (metadata.whatsapp) metadata.whatsapp.status = undefined;
+  const { error } = await database().from("tenants")
+    .update({ phone_number_id: phoneNumberId, meta_connection_metadata: metadata })
+    .eq("id", tenantId);
+  if (error) throw new Error("Unable to record Coexistence phone number");
 }
 
 export async function saveInstagramConnection(input: { tenantId: string; token: string; accountId: string; username: string; permissions: string[]; expiresAt: string }) {
@@ -77,7 +147,14 @@ export async function disconnect(tenantId: string, provider: "whatsapp" | "insta
   const metadata = { ...(tenant.meta_connection_metadata ?? {}) };
   delete metadata[provider];
   const update = provider === "whatsapp"
-    ? { waba_id: null, phone_number_id: null, meta_access_token: null, meta_connection_metadata: metadata }
+    ? {
+      waba_id: null, phone_number_id: null, meta_access_token: null,
+      whatsapp_business_id: null, whatsapp_onboarding_type: null, whatsapp_onboarded_at: null,
+      whatsapp_sync_deadline_at: null, whatsapp_contacts_sync_state: "not_started",
+      whatsapp_contacts_sync_request_id: null, whatsapp_contacts_sync_started_at: null,
+      whatsapp_history_sync_state: "not_started", whatsapp_history_sync_request_id: null,
+      whatsapp_history_sync_started_at: null, meta_connection_metadata: metadata,
+    }
     : { instagram_business_account_id: null, instagram_page_id: null, instagram_access_token: null, instagram_token_expires_at: null, meta_connection_metadata: metadata };
   const { error } = await database().from("tenants").update(update).eq("id", tenantId);
   if (error) throw new Error(`Unable to disconnect ${provider}`);
@@ -123,6 +200,16 @@ export async function removeWhatsappConnectionByMetaUserId(userId: string, mode:
       meta_access_token: null,
       waba_id: null,
       phone_number_id: null,
+      whatsapp_business_id: null,
+      whatsapp_onboarding_type: null,
+      whatsapp_onboarded_at: null,
+      whatsapp_sync_deadline_at: null,
+      whatsapp_contacts_sync_state: "not_started",
+      whatsapp_contacts_sync_request_id: null,
+      whatsapp_contacts_sync_started_at: null,
+      whatsapp_history_sync_state: "not_started",
+      whatsapp_history_sync_request_id: null,
+      whatsapp_history_sync_started_at: null,
       meta_connection_metadata: metadata,
       status: "disconnected",
     }).eq("id", tenant.id);
