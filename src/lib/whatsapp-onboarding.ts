@@ -31,12 +31,10 @@ async function graph(path: string, accessToken: string, init: RequestInit = {}) 
 }
 
 export async function exchangeEmbeddedSignupCode(code: string) {
-  const response = await fetch(graphUrl("oauth/access_token"), {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: env.metaAppId, client_secret: env.metaAppSecret, code }),
-    cache: "no-store",
-  });
+  // Embedded Signup's Tech Provider onboarding contract documents GET here.
+  // This remains server-to-server; the app secret never reaches the browser.
+  const query = new URLSearchParams({ client_id: env.metaAppId, client_secret: env.metaAppSecret, code });
+  const response = await fetch(`${graphUrl("oauth/access_token")}?${query}`, { cache: "no-store" });
   const payload = await response.json().catch(() => ({})) as { access_token?: unknown } & GraphError;
   if (!response.ok || typeof payload.access_token !== "string") {
     throw new Error(payload.error?.message ?? "Code exchange failed");
