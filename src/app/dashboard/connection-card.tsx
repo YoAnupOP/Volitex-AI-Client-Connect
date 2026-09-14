@@ -101,8 +101,9 @@ export function ConnectionCard({ provider, connected, title, details = [] }: Car
         config_id: config.configurationId,
         response_type: "code",
         override_default_response_type: true,
-        // Meta's v4 Coexistence launch contract. Standard FINISH events are still handled above.
-        extras: { setup: {}, featureType: "whatsapp_business_app_onboarding", sessionInfoVersion: "3" },
+        // Meta's v4 Coexistence launch contract. The Builder emits `version` for v4;
+        // the featureType/sessionInfoVersion fields switch the dialog to Coexistence.
+        extras: { version: "v4", setup: {}, featureType: "whatsapp_business_app_onboarding", sessionInfoVersion: "3" },
       });
     } catch (cause) { setWorking(false); setError(cause instanceof Error ? cause.message : "Unable to start WhatsApp signup"); }
   }
