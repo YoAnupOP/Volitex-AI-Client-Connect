@@ -4,7 +4,7 @@ Invite-only portal for clients to connect WhatsApp Business and Instagram Busine
 
 ## Deploy
 
-1. Apply [`supabase/migrations/20260719_connect_portal.sql`](./supabase/migrations/20260719_connect_portal.sql), [`supabase/migrations/20260914_whatsapp_embedded_signup_v4.sql`](./supabase/migrations/20260914_whatsapp_embedded_signup_v4.sql), and [`supabase/migrations/20260915_client_magic_links_and_admin.sql`](./supabase/migrations/20260915_client_magic_links_and_admin.sql), in that order.
+1. Apply [`supabase/migrations/20260719_connect_portal.sql`](./supabase/migrations/20260719_connect_portal.sql), [`supabase/migrations/20260914_whatsapp_embedded_signup_v4.sql`](./supabase/migrations/20260914_whatsapp_embedded_signup_v4.sql), [`supabase/migrations/20260915_client_magic_links_and_admin.sql`](./supabase/migrations/20260915_client_magic_links_and_admin.sql), and [`supabase/migrations/20260916_reusable_client_access_links.sql`](./supabase/migrations/20260916_reusable_client_access_links.sql), in that order.
 2. Copy `.env.example` to `.env.local` and set every required value.
 3. In Meta, configure these exact redirect and allowed domains:
    - Instagram OAuth redirect: `https://connect.volitexai.tech/api/connect/instagram/callback`
@@ -27,11 +27,11 @@ After applying the migrations, create the first owner once:
 npm run create-admin -- --email owner@volitex.example --password "a-long-unique-password"
 ```
 
-Sign in at `/admin/login`, then use **New client** to create the tenant, choose the purchased service scope, and generate its secure access link. Copy the link once and deliver it via WhatsApp or another approved channel. The link is single-use, valid for seven days, and a new link revokes any unused prior one.
+Sign in at `/admin/login`, then use **New client** to create the tenant, choose the purchased service scope, and generate its secure access link. It remains reusable from any device for 24 hours; regenerating it revokes the previous link.
 
 ## Security model
 
-- Client links are random single-use credentials stored only as SHA-256 hashes; the client has no password or login screen. Admin passwords use bcrypt (cost 12).
+- Client links are random reusable 24-hour credentials stored only as SHA-256 hashes; the client has no password or login screen. Admin passwords use bcrypt (cost 12).
 - Client and admin sessions are separate signed, `httpOnly`, `Secure` (production), `SameSite=Lax` cookies.
 - OAuth state is signed, short lived, tied to the current session, and also matched against a short-lived `httpOnly` cookie.
 - Meta tokens use AES-256-GCM encryption at rest; no route or browser payload returns them.

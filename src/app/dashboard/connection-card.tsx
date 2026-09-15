@@ -108,7 +108,8 @@ export function ConnectionCard({ provider, connected, title, status, details = [
     } catch (cause) { setWorking(false); setError(cause instanceof Error ? cause.message : "Unable to start WhatsApp signup"); }
   }
 
-  const action = provider === "instagram" ? () => { window.location.assign("/api/connect/instagram/start"); } : connectWhatsapp;
+  const connectInstagram = () => { setWorking(true); setError(null); window.location.assign("/api/connect/instagram/start"); };
+  const action = provider === "instagram" ? connectInstagram : connectWhatsapp;
   const received = status === "connection_received" || ["ops_setup", "testing", "live"].includes(status);
   return <section className="flex min-h-72 flex-col rounded-xl border border-zinc-800 bg-zinc-950 p-6"><div className="flex items-start justify-between gap-4"><div><h2 className="text-base font-semibold">{title}</h2><p className={`mt-3 inline-flex items-center gap-2 text-sm ${received ? "text-emerald-300" : "text-zinc-500"}`}><span className={`h-1.5 w-1.5 rounded-full ${received ? "bg-emerald-400" : "bg-zinc-600"}`} />{received ? status === "live" ? "Live" : "Connection received" : "Ready when you are"}</p></div></div>
     <div className="mt-7 flex-1 space-y-2 text-sm text-zinc-400">{connected ? details.map((detail) => <p key={detail}>{detail}</p>) : provider === "whatsapp" ? <p>If you use the WhatsApp Business app, you can select your existing business number in Meta.</p> : <p>Your account needs to be a professional Instagram account, and you need access to it.</p>}</div>
