@@ -25,7 +25,7 @@ export type Tenant = {
   instagram_business_account_id: string | null; instagram_page_id: string | null;
   instagram_access_token: string | null; instagram_token_expires_at: string | null;
   meta_connection_metadata: ConnectionMetadata | null;
-  primary_contact_name?: string | null; primary_contact_email?: string | null;
+  primary_contact_name?: string | null; primary_contact_email?: string | null; primary_contact_phone?: string | null;
   market_code?: string | null; timezone?: string | null; locale?: string | null;
   client_type?: string | null; internal_note?: string | null; sales_owner?: string | null;
   portal_access_paused?: boolean;
@@ -36,7 +36,7 @@ export type TenantService = { id: string; tenant_id: string; provider: ServicePr
 
 export async function getTenant(tenantId: string): Promise<Tenant> {
   const { data, error } = await database().from("tenants")
-    .select("id, client_name, phone_number_id, waba_id, whatsapp_business_id, whatsapp_onboarding_type, whatsapp_onboarded_at, whatsapp_sync_deadline_at, whatsapp_contacts_sync_state, whatsapp_contacts_sync_request_id, whatsapp_contacts_sync_started_at, whatsapp_history_sync_state, whatsapp_history_sync_request_id, whatsapp_history_sync_started_at, instagram_business_account_id, instagram_page_id, instagram_access_token, instagram_token_expires_at, meta_connection_metadata, primary_contact_name, primary_contact_email, market_code, timezone, locale, client_type, internal_note, sales_owner, portal_access_paused")
+    .select("id, client_name, phone_number_id, waba_id, whatsapp_business_id, whatsapp_onboarding_type, whatsapp_onboarded_at, whatsapp_sync_deadline_at, whatsapp_contacts_sync_state, whatsapp_contacts_sync_request_id, whatsapp_contacts_sync_started_at, whatsapp_history_sync_state, whatsapp_history_sync_request_id, whatsapp_history_sync_started_at, instagram_business_account_id, instagram_page_id, instagram_access_token, instagram_token_expires_at, meta_connection_metadata, primary_contact_name, primary_contact_email, primary_contact_phone, market_code, timezone, locale, client_type, internal_note, sales_owner, portal_access_paused")
     .eq("id", tenantId).single();
   if (error || !data) throw new Error("Unable to load tenant connection status");
   return data as Tenant;
