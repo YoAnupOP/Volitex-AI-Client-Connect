@@ -4,7 +4,7 @@ Invite-only portal for clients to connect WhatsApp Business and Instagram Busine
 
 ## Deploy
 
-1. Apply [`supabase/migrations/20260719_connect_portal.sql`](./supabase/migrations/20260719_connect_portal.sql), [`supabase/migrations/20260914_whatsapp_embedded_signup_v4.sql`](./supabase/migrations/20260914_whatsapp_embedded_signup_v4.sql), [`supabase/migrations/20260915_client_magic_links_and_admin.sql`](./supabase/migrations/20260915_client_magic_links_and_admin.sql), and [`supabase/migrations/20260916_reusable_client_access_links.sql`](./supabase/migrations/20260916_reusable_client_access_links.sql), in that order.
+1. Apply [`supabase/migrations/20260719_connect_portal.sql`](./supabase/migrations/20260719_connect_portal.sql), [`supabase/migrations/20260914_whatsapp_embedded_signup_v4.sql`](./supabase/migrations/20260914_whatsapp_embedded_signup_v4.sql), [`supabase/migrations/20260915_client_magic_links_and_admin.sql`](./supabase/migrations/20260915_client_magic_links_and_admin.sql), [`supabase/migrations/20260916_reusable_client_access_links.sql`](./supabase/migrations/20260916_reusable_client_access_links.sql), and [`supabase/migrations/20260917_persist_active_access_link.sql`](./supabase/migrations/20260917_persist_active_access_link.sql), in that order.
 2. Copy `.env.example` to `.env.local` and set every required value.
 3. In Meta, configure these exact redirect and allowed domains:
    - Instagram OAuth redirect: `https://connect.volitexai.tech/api/connect/instagram/callback`

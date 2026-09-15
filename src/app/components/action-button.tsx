@@ -9,11 +9,12 @@ export function ActionButton({ label, loadingLabel = "Saving…", successLabel =
   const { pending } = useFormStatus();
   const wasPending = useRef(false); const [complete, setComplete] = useState(false);
   useEffect(() => {
-    if (pending) { wasPending.current = true; setComplete(false); return; }
+    if (pending) { wasPending.current = true; const reset = window.setTimeout(() => setComplete(false), 0); return () => window.clearTimeout(reset); }
     if (!wasPending.current) return;
-    wasPending.current = false; setComplete(true);
-    const timer = window.setTimeout(() => setComplete(false), 1300);
-    return () => window.clearTimeout(timer);
+    wasPending.current = false;
+    const show = window.setTimeout(() => setComplete(true), 0);
+    const hide = window.setTimeout(() => setComplete(false), 1300);
+    return () => { window.clearTimeout(show); window.clearTimeout(hide); };
   }, [pending]);
   const text = pending ? loadingLabel : complete ? successLabel : label;
   return <button type="submit" disabled={pending} aria-live="polite" className={`${className} disabled:cursor-not-allowed disabled:opacity-65`}>

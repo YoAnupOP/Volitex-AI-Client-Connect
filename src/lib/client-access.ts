@@ -1,4 +1,4 @@
-import { randomToken, sha256 } from "@/lib/crypto";
+import { decrypt, encrypt, randomToken, sha256 } from "@/lib/crypto";
 import { database } from "@/lib/supabase";
 
 const ACCESS_TTL_MS = 1000 * 60 * 60 * 24;
@@ -15,8 +15,15 @@ export async function createAccessLink(tenantId: string, createdBy: string) {
   const token = randomToken(); const expiresAt = new Date(Date.now() + ACCESS_TTL_MS).toISOString(); const db = database();
   const { error: invalidateError } = await db.from("client_access_tokens").update({ revoked_at: new Date().toISOString() }).eq("tenant_id", tenantId).is("revoked_at", null);
   if (invalidateError) throw new Error("Unable to invalidate the previous access link");
-  const { error } = await db.from("client_access_tokens").insert({ tenant_id: tenantId, token_hash: sha256(token), expires_at: expiresAt, created_by: createdBy, delivery_channel: "manual" });
+  const { error } = await db.from("client_access_tokens").insert({ tenant_id: tenantId, token_hash: sha256(token), token_encrypted: encrypt(token), expires_at: expiresAt, created_by: createdBy, delivery_channel: "manual" });
   if (error) throw new Error("Unable to create an access link"); return { token, expiresAt };
+}
+
+/** Returns the plaintext only to an authenticated server-rendered admin page. */
+export async function getActiveAccessLink(tenantId: string): Promise<{ token: string; expiresAt: string } | null> {
+  const { data } = await database().from("client_access_tokens").select("token_encrypted, expires_at").eq("tenant_id", tenantId).is("revoked_at", null).gt("expires_at", new Date().toISOString()).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (!data?.token_encrypted) return null;
+  try { return { token: decrypt(data.token_encrypted), expiresAt: data.expires_at }; } catch { return null; }
 }
 
 export async function consumeAccessLink(token: string): Promise<{ state: AccessTokenState; tenantId?: string }> {
