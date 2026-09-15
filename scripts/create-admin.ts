@@ -2,7 +2,12 @@ import bcrypt from "bcryptjs";
 import { loadEnvConfig } from "@next/env";
 import { database } from "../src/lib/supabase";
 loadEnvConfig(process.cwd());
-const argument = (name: string) => { const index = process.argv.indexOf(name); return index >= 0 ? process.argv[index + 1] : undefined; };
+const argument = (name: string) => {
+  const index = process.argv.indexOf(name);
+  if (index >= 0) return process.argv[index + 1];
+  const inline = process.argv.find((value) => value.startsWith(`${name}=`));
+  return inline?.slice(name.length + 1);
+};
 async function main() {
   const email = argument("--email")?.trim().toLowerCase(); const password = argument("--password"); const role = argument("--role") ?? "owner";
   if (!email || !password || password.length < 12 || !["owner", "operator"].includes(role)) throw new Error("Usage: npm run create-admin -- --email <address> --password <12+ chars> [--role owner|operator]");
