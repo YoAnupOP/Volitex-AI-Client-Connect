@@ -25,14 +25,33 @@ export type Tenant = {
   instagram_business_account_id: string | null; instagram_page_id: string | null;
   instagram_access_token: string | null; instagram_token_expires_at: string | null;
   meta_connection_metadata: ConnectionMetadata | null;
+  primary_contact_name?: string | null; primary_contact_email?: string | null;
+  market_code?: string | null; timezone?: string | null; locale?: string | null;
+  client_type?: string | null; internal_note?: string | null; sales_owner?: string | null;
+  portal_access_paused?: boolean;
 };
+export type ServiceProvider = "whatsapp" | "instagram";
+export type ServiceStatus = "not_started" | "invite_sent" | "connection_received" | "ops_setup" | "testing" | "live" | "action_needed" | "disabled";
+export type TenantService = { id: string; tenant_id: string; provider: ServiceProvider; status: ServiceStatus; enabled_at: string | null; connected_at: string | null; live_at: string | null; status_note: string | null };
 
 export async function getTenant(tenantId: string): Promise<Tenant> {
   const { data, error } = await database().from("tenants")
-    .select("id, client_name, phone_number_id, waba_id, whatsapp_business_id, whatsapp_onboarding_type, whatsapp_onboarded_at, whatsapp_sync_deadline_at, whatsapp_contacts_sync_state, whatsapp_contacts_sync_request_id, whatsapp_contacts_sync_started_at, whatsapp_history_sync_state, whatsapp_history_sync_request_id, whatsapp_history_sync_started_at, instagram_business_account_id, instagram_page_id, instagram_access_token, instagram_token_expires_at, meta_connection_metadata")
+    .select("id, client_name, phone_number_id, waba_id, whatsapp_business_id, whatsapp_onboarding_type, whatsapp_onboarded_at, whatsapp_sync_deadline_at, whatsapp_contacts_sync_state, whatsapp_contacts_sync_request_id, whatsapp_contacts_sync_started_at, whatsapp_history_sync_state, whatsapp_history_sync_request_id, whatsapp_history_sync_started_at, instagram_business_account_id, instagram_page_id, instagram_access_token, instagram_token_expires_at, meta_connection_metadata, primary_contact_name, primary_contact_email, market_code, timezone, locale, client_type, internal_note, sales_owner, portal_access_paused")
     .eq("id", tenantId).single();
   if (error || !data) throw new Error("Unable to load tenant connection status");
   return data as Tenant;
+}
+
+export async function getTenantServices(tenantId: string): Promise<TenantService[]> {
+  const { data, error } = await database().from("tenant_services").select("id, tenant_id, provider, status, enabled_at, connected_at, live_at, status_note").eq("tenant_id", tenantId).order("provider");
+  if (error) throw new Error("Unable to load service scope"); return (data ?? []) as TenantService[];
+}
+export async function isProviderEnabled(tenantId: string, provider: ServiceProvider) {
+  const { data } = await database().from("tenant_services").select("id").eq("tenant_id", tenantId).eq("provider", provider).neq("status", "disabled").maybeSingle(); return Boolean(data);
+}
+export async function setServiceConnectionReceived(tenantId: string, provider: ServiceProvider) {
+  const { error } = await database().from("tenant_services").update({ status: "connection_received", connected_at: new Date().toISOString() }).eq("tenant_id", tenantId).eq("provider", provider);
+  if (error) throw new Error("Unable to update service lifecycle");
 }
 
 export async function saveWhatsappConnection(input: {
@@ -67,6 +86,7 @@ export async function saveWhatsappConnection(input: {
     meta_connection_metadata: metadata,
   }).eq("id", input.tenantId);
   if (error) throw new Error("Unable to save WhatsApp connection");
+  await setServiceConnectionReceived(input.tenantId, "whatsapp");
 }
 
 type SyncKind = "contacts" | "history";
@@ -119,6 +139,7 @@ export async function saveInstagramConnection(input: { tenantId: string; token: 
     instagram_business_account_id: input.accountId, instagram_access_token: encrypt(input.token), instagram_token_expires_at: input.expiresAt, meta_connection_metadata: metadata,
   }).eq("id", input.tenantId);
   if (error) throw new Error("Unable to save Instagram connection");
+  await setServiceConnectionReceived(input.tenantId, "instagram");
 }
 
 export async function getTenantsWithExpiringInstagramTokens(withinDays: number): Promise<Tenant[]> {

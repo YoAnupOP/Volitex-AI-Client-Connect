@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { issueOAuthState } from "@/lib/oauth";
+import { isProviderEnabled } from "@/lib/connection";
 
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.redirect(new URL("/login", env.appUrl));
+  if (!(await isProviderEnabled(session.tenantId, "instagram"))) return NextResponse.redirect(new URL("/dashboard?error=Instagram%20is%20not%20part%20of%20this%20connection", env.appUrl));
   const authorize = new URL("https://www.instagram.com/oauth/authorize");
   authorize.searchParams.set("client_id", env.instagramAppId);
   authorize.searchParams.set("redirect_uri", env.instagramRedirectUri);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { consumeOAuthState, verifyOAuthState } from "@/lib/oauth";
 import { confirmCoexistencePhoneNumber, saveWhatsappConnection } from "@/lib/connection";
+import { isProviderEnabled } from "@/lib/connection";
 import {
   exchangeEmbeddedSignupCode,
   getCoexistencePhoneNumber,
@@ -17,6 +18,7 @@ type SignupEvent = "FINISH" | "FINISH_ONLY_WABA" | "FINISH_WHATSAPP_BUSINESS_APP
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+  if (!(await isProviderEnabled(session.tenantId, "whatsapp"))) return NextResponse.json({ error: "WhatsApp is not part of this connection" }, { status: 403 });
   const body = await request.json() as {
     code?: string; state?: string; wabaId?: string; phoneNumberId?: string;
     businessId?: string; facebookUserId?: string; event?: SignupEvent;

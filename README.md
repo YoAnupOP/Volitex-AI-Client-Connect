@@ -4,7 +4,7 @@ Invite-only portal for clients to connect WhatsApp Business and Instagram Busine
 
 ## Deploy
 
-1. Apply [`supabase/migrations/20260719_connect_portal.sql`](./supabase/migrations/20260719_connect_portal.sql) and [`supabase/migrations/20260914_whatsapp_embedded_signup_v4.sql`](./supabase/migrations/20260914_whatsapp_embedded_signup_v4.sql) to the existing Supabase project.
+1. Apply [`supabase/migrations/20260719_connect_portal.sql`](./supabase/migrations/20260719_connect_portal.sql), [`supabase/migrations/20260914_whatsapp_embedded_signup_v4.sql`](./supabase/migrations/20260914_whatsapp_embedded_signup_v4.sql), and [`supabase/migrations/20260915_client_magic_links_and_admin.sql`](./supabase/migrations/20260915_client_magic_links_and_admin.sql), in that order.
 2. Copy `.env.example` to `.env.local` and set every required value.
 3. In Meta, configure these exact redirect and allowed domains:
    - Instagram OAuth redirect: `https://connect.volitexai.tech/api/connect/instagram/callback`
@@ -19,23 +19,23 @@ The app stores encrypted access-token envelopes directly in the existing `tenant
 
 For WhatsApp Embedded Signup v4, the additive tenant columns record the customer business ID, onboarding type, Coexistence deadline, and one-time contacts/history sync request state. The portal subscribes each customer WABA and begins Coexistence syncs in the finish endpoint; webhook digestion remains owned by the configured inbox callback service.
 
-## Invite a client
+## Create an operator and client
 
-Create the tenant through the existing agency workflow, then run:
+After applying the migrations, create the first owner once:
 
 ```sh
-npm run provision-client -- --tenant-id <tenant-uuid> --email client@example.com
+npm run create-admin -- --email owner@volitex.example --password "a-long-unique-password"
 ```
 
-Send the printed one-time link via your chosen secure channel. It expires after seven days. There is no public signup route.
+Sign in at `/admin/login`, then use **New client** to create the tenant, choose the purchased service scope, and generate its secure access link. Copy the link once and deliver it via WhatsApp or another approved channel. The link is single-use, valid for seven days, and a new link revokes any unused prior one.
 
 ## Security model
 
-- Passwords use bcrypt (cost 12); invitation and reset links are stored only as SHA-256 hashes.
-- The session is a signed, `httpOnly`, `Secure` (production), `SameSite=Lax` cookie.
+- Client links are random single-use credentials stored only as SHA-256 hashes; the client has no password or login screen. Admin passwords use bcrypt (cost 12).
+- Client and admin sessions are separate signed, `httpOnly`, `Secure` (production), `SameSite=Lax` cookies.
 - OAuth state is signed, short lived, tied to the current session, and also matched against a short-lived `httpOnly` cookie.
 - Meta tokens use AES-256-GCM encryption at rest; no route or browser payload returns them.
-- Supabase is accessed only with a server-side service-role client. `client_users` has RLS enabled with no browser policy.
+- Supabase is accessed only with a server-side service-role client. Client-access and admin tables have RLS enabled with no browser policy.
 
 ## Meta readiness
 

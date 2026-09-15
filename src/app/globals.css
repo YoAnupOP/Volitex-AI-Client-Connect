@@ -2,6 +2,14 @@
 
 :root { color-scheme: dark; }
 * { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; background: #09090b; color: #f4f4f5; font-family: Arial, Helvetica, sans-serif; }
+body { margin: 0; min-height: 100vh; background: #111110; color: #f5f4ef; font-family: var(--font-manrope), sans-serif; font-size: 14px; }
 button, input { font: inherit; }
 ::selection { background: #52525b; color: white; }
+.shell { min-height: 100vh; max-width: 720px; margin: auto; display: flex; align-items: center; padding: 24px; }
+.panel { width: 100%; border: 1px solid #33332f; background: #1a1a18; border-radius: 18px; padding: 32px; box-shadow: 0 24px 80px rgb(0 0 0 / .18); }
+.narrow { max-width: 520px; margin: auto; }
+.eyebrow { color: #a3a39b; font-size: 12px; font-weight: 600; letter-spacing: .09em; }
+.panel h1 { margin: 14px 0 0; font-size: clamp(28px, 5vw, 36px); line-height: 1.15; letter-spacing: -.04em; font-weight: 600; }
+.lead { margin: 14px 0 0; color: #c7c6bd; line-height: 1.65; font-size: 16px; }
+.support { margin: 28px 0 0; color: #aaa99f; } .support a { color: #f5f4ef; }
+@media (prefers-reduced-motion: no-preference) { button, a { transition: color .18s ease, background-color .18s ease, border-color .18s ease, transform .18s ease; } }

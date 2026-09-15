@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { consumeOAuthState, verifyOAuthState } from "@/lib/oauth";
-import { saveInstagramConnection } from "@/lib/connection";
+import { isProviderEnabled, saveInstagramConnection } from "@/lib/connection";
 
 function dashboardError(message: string) { return NextResponse.redirect(new URL(`/dashboard?error=${encodeURIComponent(message)}`, env.appUrl)); }
 
@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
   if (!session) { console.error("Instagram callback: no session"); return dashboardError("Instagram authorization could not be verified. Please try again."); }
+  if (!(await isProviderEnabled(session.tenantId, "instagram"))) return dashboardError("Instagram is not part of this connection.");
   if (!code) { console.error("Instagram callback: no code param"); return dashboardError("Instagram authorization could not be verified. Please try again."); }
   if (!state) { console.error("Instagram callback: no state param"); return dashboardError("Instagram authorization could not be verified. Please try again."); }
   if (!(await verifyOAuthState("instagram", state, session))) { console.error("Instagram callback: state verification failed"); return dashboardError("Instagram authorization could not be verified. Please try again."); }

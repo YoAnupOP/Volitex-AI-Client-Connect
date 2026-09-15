@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "provision-client": "tsx scripts/provision-client.ts"
+    "provision-client": "tsx scripts/provision-client.ts",
+    "create-admin": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

@@ -10,7 +10,7 @@ declare global {
 }
 
 type Provider = "whatsapp" | "instagram";
-type CardProps = { provider: Provider; connected: boolean; title: string; details?: string[] };
+type CardProps = { provider: Provider; connected: boolean; title: string; status: string; details?: string[] };
 type SignupEvent = "FINISH" | "FINISH_ONLY_WABA" | "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING";
 type SignupAsset = { wabaId?: string; phoneNumberId?: string; businessId?: string; facebookUserId?: string; event?: SignupEvent };
 
@@ -31,7 +31,7 @@ function loadFacebookSdk(appId: string, version: string) {
   });
 }
 
-export function ConnectionCard({ provider, connected, title, details = [] }: CardProps) {
+export function ConnectionCard({ provider, connected, title, status, details = [] }: CardProps) {
   const [working, setWorking] = useState(false); const [error, setError] = useState<string | null>(null);
   const code = useRef<string | undefined>(undefined); const asset = useRef<SignupAsset>({}); const state = useRef<string | undefined>(undefined); const submitted = useRef(false);
 
@@ -108,17 +108,11 @@ export function ConnectionCard({ provider, connected, title, details = [] }: Car
     } catch (cause) { setWorking(false); setError(cause instanceof Error ? cause.message : "Unable to start WhatsApp signup"); }
   }
 
-  async function disconnectAccount() {
-    if (!window.confirm(`Disconnect ${title}?`)) return;
-    setWorking(true); setError(null);
-    const response = await fetch(`/api/connect/${provider}`, { method: "DELETE" });
-    if (response.ok) window.location.assign("/dashboard"); else { setWorking(false); setError("Unable to disconnect account."); }
-  }
-
   const action = provider === "instagram" ? () => { window.location.assign("/api/connect/instagram/start"); } : connectWhatsapp;
-  return <section className="flex min-h-72 flex-col rounded-xl border border-zinc-800 bg-zinc-950 p-6"><div className="flex items-start justify-between gap-4"><div><h2 className="text-base font-semibold">{title}</h2><p className={`mt-3 inline-flex items-center gap-2 text-sm ${connected ? "text-emerald-300" : "text-zinc-500"}`}><span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400" : "bg-zinc-600"}`} />{connected ? "Connected" : "Not connected"}</p></div></div>
-    <div className="mt-7 flex-1 space-y-2 text-sm text-zinc-400">{connected ? details.map((detail) => <p key={detail}>{detail}</p>) : <p>Connect your business account securely through Meta.</p>}</div>
+  const received = status === "connection_received" || ["ops_setup", "testing", "live"].includes(status);
+  return <section className="flex min-h-72 flex-col rounded-xl border border-zinc-800 bg-zinc-950 p-6"><div className="flex items-start justify-between gap-4"><div><h2 className="text-base font-semibold">{title}</h2><p className={`mt-3 inline-flex items-center gap-2 text-sm ${received ? "text-emerald-300" : "text-zinc-500"}`}><span className={`h-1.5 w-1.5 rounded-full ${received ? "bg-emerald-400" : "bg-zinc-600"}`} />{received ? status === "live" ? "Live" : "Connection received" : "Ready when you are"}</p></div></div>
+    <div className="mt-7 flex-1 space-y-2 text-sm text-zinc-400">{connected ? details.map((detail) => <p key={detail}>{detail}</p>) : provider === "whatsapp" ? <p>If you use the WhatsApp Business app, you can select your existing business number in Meta.</p> : <p>Your account needs to be a professional Instagram account, and you need access to it.</p>}</div>
     {error && <p role="alert" className="mb-4 text-sm text-red-300">{error}</p>}
-    <div className="flex gap-3"><button disabled={working} onClick={action} className="rounded-md bg-zinc-100 px-3.5 py-2 text-sm font-medium text-zinc-950 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60">{working ? "Connecting…" : connected ? "Reconnect" : "Connect"}</button>{connected && <button disabled={working} onClick={disconnectAccount} className="rounded-md border border-zinc-700 px-3.5 py-2 text-sm text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 disabled:opacity-60">Disconnect</button>}</div>
+    <div className="flex gap-3">{status !== "live" && <button disabled={working} onClick={action} className="rounded-md bg-zinc-100 px-3.5 py-2 text-sm font-medium text-zinc-950 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60">{working ? "Opening Meta…" : connected ? "Reconnect" : `Connect ${provider === "whatsapp" ? "WhatsApp Business" : "Instagram Professional"}`}</button>}</div>
   </section>;
 }
